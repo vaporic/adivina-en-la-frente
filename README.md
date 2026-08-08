@@ -18,9 +18,9 @@ teléfono en la frente, tus amigos actúan y tú adivinas antes de que se acabe 
 - Rondas de 60, 90 o 120 segundos con cuenta atrás y barra de tiempo.
 - Modo equipos A vs B con marcador acumulado.
 - Repaso al final: toca cualquier palabra para corregir el resultado.
-- Récord por mazo guardado en el propio dispositivo.
-- Sonido sintetizado en el navegador, vibración, aviso de "gira el teléfono" y bloqueo
-  del apagado de pantalla mientras juegas.
+- Récord por mazo y métricas globales (partidas, aciertos, mejor ronda), con botón para borrarlas.
+- Banda sonora chiptune sintetizada en el navegador y vibración, ambas desactivables.
+- Aviso de "gira el teléfono" y bloqueo del apagado de pantalla mientras juegas.
 
 Sin dependencias, sin build de terceros, sin red: un único archivo HTML.
 
@@ -53,3 +53,19 @@ volver por debajo de 0.35 para rearmarla, así una sola inclinación no cuenta d
 
 iOS 13+ pide permiso explícito para los sensores, y dentro de un `iframe` puede no llegar
 nunca: por eso el control táctil no es un apaño, es un camino de primera clase.
+
+## Sonido
+
+Todo se sintetiza en tiempo real con la Web Audio API — no hay ni un archivo de audio que
+descargar. Cada efecto son unas pocas voces (osciladores cuadrados y triangulares, más ruido
+blanco filtrado) con envolventes cortas, encadenadas a un compresor para que apilar notas no
+sature. Hay arpegios distintos para acertar, pasar, empezar ronda, últimos cinco segundos,
+fin de tiempo y récord nuevo.
+
+Apagar el sonido no baja el volumen: deja de crear nodos.
+
+## Vibración
+
+`navigator.vibrate` con un patrón por evento. **Safari en iPhone no la soporta** — ninguna web
+puede vibrar en iOS. Cuando el navegador no la permite, el interruptor sale desactivado con su
+explicación en vez de fingir que funciona.

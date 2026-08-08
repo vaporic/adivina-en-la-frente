@@ -168,8 +168,77 @@
     background: var(--muted);
     transition: transform .15s ease, background .15s ease;
   }
+  .switch:disabled { opacity: .35; cursor: default; }
   .switch[data-on] { background: var(--lime); }
   .switch[data-on]::after { transform: translateX(1.5rem); background: var(--ink); }
+
+  .note { font-size: .78rem; color: var(--muted); opacity: .75; }
+
+  /* ---------- Métricas ---------- */
+
+  .metrics {
+    display: grid;
+    gap: .8rem;
+    padding: 1rem;
+    background: var(--ink-2);
+    border-radius: 1.1rem;
+  }
+
+  .stats { display: flex; gap: .5rem; }
+  .stats div {
+    flex: 1;
+    display: grid;
+    gap: .1rem;
+    padding: .7rem .6rem;
+    background: var(--surface);
+    border-radius: .8rem;
+  }
+  .stats b {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 1.6rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--lime);
+  }
+  .stats span {
+    font-size: .68rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .metrics .row { flex-wrap: wrap; }
+
+  /* La confirmación baja a su propia línea completa: apretada junto al título
+     se parte en dos y "Sí, borrar" deja de leerse de un vistazo. */
+  .confirm {
+    flex: 1 0 100%;
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin-top: .35rem;
+  }
+  .confirm .ask { flex: 1; font-size: .88rem; color: var(--cream); font-weight: 600; }
+
+  .link {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    padding: .2rem .1rem;
+  }
+  .danger {
+    font-size: .82rem;
+    font-weight: 700;
+    color: var(--ink);
+    background: var(--coral);
+    padding: .35rem .75rem;
+    border-radius: .6rem;
+  }
+  .danger:active, .link:active { opacity: .7; }
 
   .start {
     margin-top: auto;
@@ -471,6 +540,27 @@
         <span class="label">Modo equipos</span>
         <button class="switch" id="teamToggle" role="switch" aria-checked="false" aria-label="Modo equipos"></button>
       </div>
+      <div class="row">
+        <span class="label">Sonido</span>
+        <button class="switch" id="soundToggle" role="switch" aria-checked="true" aria-label="Sonido"></button>
+      </div>
+      <div class="row">
+        <span class="label">Vibración</span>
+        <button class="switch" id="vibraToggle" role="switch" aria-checked="true" aria-label="Vibración"></button>
+      </div>
+      <p class="note" id="vibraNote" hidden>Tu navegador no permite vibrar. En iPhone, Safari nunca lo permite.</p>
+    </div>
+
+    <div class="metrics">
+      <div class="row">
+        <span class="label">Tus métricas</span>
+        <div id="resetArea"></div>
+      </div>
+      <div class="stats">
+        <div><b id="stGames">0</b><span>partidas</span></div>
+        <div><b id="stHits">0</b><span>aciertos</span></div>
+        <div><b id="stBest">0</b><span>mejor</span></div>
+      </div>
     </div>
 
     <div class="howto">
@@ -610,15 +700,29 @@
     rafId: 0,
     tickAt: 0,
     skipRotate: false,
+    committed: 0,
     wakeLock: null
   };
 
   const $ = (id) => document.getElementById(id);
   const bestKey = (id) => "adivina.best." + id;
+  const STATS_KEY = "adivina.stats";
+
+  function loadStats() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(STATS_KEY) || "{}");
+      return { games: raw.games || 0, hits: raw.hits || 0, best: raw.best || 0 };
+    } catch (_) {
+      return { games: 0, hits: 0, best: 0 };
+    }
+  }
+  function saveStats(s) { localStorage.setItem(STATS_KEY, JSON.stringify(s)); }
 
   const el = {
     home: $("home"), ready: $("ready"), play: $("play"), results: $("results"),
     decks: $("decks"), durations: $("durations"), teamToggle: $("teamToggle"),
+    soundToggle: $("soundToggle"), vibraToggle: $("vibraToggle"), vibraNote: $("vibraNote"),
+    resetArea: $("resetArea"), stGames: $("stGames"), stHits: $("stHits"), stBest: $("stBest"),
     startBtn: $("startBtn"), readyDeck: $("readyDeck"), readyHint: $("readyHint"),
     count: $("count"), bar: $("bar"), barFill: $("bar").firstElementChild,
     clock: $("clock"), tally: $("tally"), word: $("word"), verdict: $("verdict"),
@@ -629,39 +733,153 @@
     rotate: $("rotate"), skipRotate: $("skipRotate")
   };
 
-  /* ---------- Sonido ---------- */
+  /* ---------- Sonido ----------
+     Motor chiptune: todo se sintetiza al vuelo, cero archivos que descargar.
+     Cada efecto es un puñado de voces (osciladores + ruido filtrado) con
+     envolventes cortas, encadenadas a un compresor para que apilar notas
+     no sature. */
 
-  let ac = null;
-  function audio() {
-    if (!ac) {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (Ctx) ac = new Ctx();
+  const Sound = (() => {
+    let ctx = null, master = null, noiseBuf = null;
+    let on = localStorage.getItem("adivina.sound") !== "0";
+
+    function boot() {
+      if (ctx) return ctx;
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      ctx = new C();
+      master = ctx.createGain();
+      master.gain.value = 0.85;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -14;
+      comp.ratio.value = 6;
+      master.connect(comp).connect(ctx.destination);
+      return ctx;
     }
-    if (ac && ac.state === "suspended") ac.resume();
-    return ac;
-  }
-  function tone(freq, dur, type, vol) {
-    const c = audio();
-    if (!c) return;
-    const o = c.createOscillator();
-    const g = c.createGain();
-    o.type = type || "square";
-    o.frequency.setValueAtTime(freq, c.currentTime);
-    g.gain.setValueAtTime(0.0001, c.currentTime);
-    g.gain.exponentialRampToValueAtTime(vol || 0.16, c.currentTime + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
-    o.connect(g).connect(c.destination);
-    o.start();
-    o.stop(c.currentTime + dur + 0.02);
-  }
-  const sfx = {
-    hit()  { tone(660, 0.1, "square", 0.16); setTimeout(() => tone(990, 0.16, "square", 0.16), 90); },
-    pass() { tone(200, 0.18, "sawtooth", 0.12); },
-    tick() { tone(880, 0.05, "sine", 0.09); },
-    go()   { tone(1320, 0.28, "square", 0.16); },
-    end()  { tone(330, 0.3, "sawtooth", 0.14); setTimeout(() => tone(220, 0.5, "sawtooth", 0.14), 260); }
+
+    function live() {
+      if (!on) return null;
+      const c = boot();
+      if (!c) return null;
+      if (c.state === "suspended") c.resume();
+      return c;
+    }
+
+    // Una voz tonal: frecuencia fija o deslizada, con envolvente exponencial.
+    function voice(o) {
+      const c = live();
+      if (!c) return;
+      const t0 = c.currentTime + (o.at || 0);
+      const dur = o.dur;
+      const osc = c.createOscillator();
+      osc.type = o.type || "square";
+      osc.frequency.setValueAtTime(o.f, t0);
+      if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t0 + dur);
+      if (o.detune) osc.detune.setValueAtTime(o.detune, t0);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(o.gain == null ? 0.18 : o.gain, t0 + (o.attack || 0.006));
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      let tail = osc;
+      if (o.lp) {
+        const f = c.createBiquadFilter();
+        f.type = "lowpass";
+        f.frequency.setValueAtTime(o.lp, t0);
+        tail.connect(f);
+        tail = f;
+      }
+      tail.connect(g).connect(master);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.05);
+    }
+
+    // Percusión y brillo: ruido blanco pasado por un filtro que barre.
+    function noise(o) {
+      const c = live();
+      if (!c) return;
+      if (!noiseBuf) {
+        noiseBuf = c.createBuffer(1, Math.floor(c.sampleRate * 0.6), c.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      }
+      const t0 = c.currentTime + (o.at || 0);
+      const src = c.createBufferSource();
+      src.buffer = noiseBuf;
+      const f = c.createBiquadFilter();
+      f.type = o.type || "bandpass";
+      f.frequency.setValueAtTime(o.f, t0);
+      if (o.to) f.frequency.exponentialRampToValueAtTime(o.to, t0 + o.dur);
+      f.Q.value = o.q || 1.2;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(o.gain || 0.12, t0 + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+      src.connect(f).connect(g).connect(master);
+      src.start(t0);
+      src.stop(t0 + o.dur + 0.05);
+    }
+
+    function arp(notes, step, o) {
+      notes.forEach((f, i) => voice(Object.assign({ f: f, at: i * step }, o)));
+    }
+
+    const N = { C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880,
+                C6: 1046.5, D6: 1174.7, E6: 1318.5, G6: 1568, C4: 261.63, G4: 392 };
+
+    return {
+      get on() { return on; },
+      set on(v) {
+        on = v;
+        localStorage.setItem("adivina.sound", v ? "1" : "0");
+        if (v) { boot(); this.toggle(true); }
+      },
+      unlock() { live(); },
+
+      // Interfaz
+      ui()      { voice({ f: 900, dur: 0.035, gain: 0.07 }); noise({ f: 3200, dur: 0.022, gain: 0.045 }); },
+      select()  { arp([N.E5, N.A5], 0.05, { dur: 0.09, gain: 0.12 }); noise({ f: 2600, dur: 0.03, gain: 0.05 }); },
+      toggle(v) { arp(v ? [N.G5, N.D6] : [N.G5, N.C5], 0.05, { dur: 0.09, gain: 0.11 }); },
+      wipe()    { voice({ f: 520, to: 90, dur: 0.34, type: "sawtooth", gain: 0.13, lp: 1400 });
+                  noise({ f: 1800, to: 200, dur: 0.34, gain: 0.09 }); },
+
+      // Partida
+      start()   { arp([N.C5, N.E5, N.G5, N.C6], 0.075, { dur: 0.2, gain: 0.15 });
+                  voice({ f: N.C4, dur: 0.3, type: "triangle", gain: 0.16 }); },
+      tick(i)   { voice({ f: [N.C5, N.D5, N.E5][i] || N.C5, dur: 0.09, gain: 0.13 }); },
+      go()      { [N.C5, N.E5, N.G5, N.C6].forEach((f) => voice({ f: f, dur: 0.32, gain: 0.11 }));
+                  noise({ f: 400, to: 4000, dur: 0.28, gain: 0.1 }); },
+
+      hit()     { arp([N.G5, N.C6, N.E6], 0.055, { dur: 0.17, gain: 0.16 });
+                  voice({ f: N.C4, dur: 0.13, type: "triangle", gain: 0.14 });
+                  noise({ at: 0.11, f: 5200, dur: 0.12, gain: 0.06, type: "highpass" }); },
+      pass()    { voice({ f: N.G4, to: 140, dur: 0.24, gain: 0.15, lp: 1100 });
+                  noise({ f: 700, to: 200, dur: 0.16, gain: 0.07 }); },
+
+      urgent()  { voice({ f: N.C6, dur: 0.07, gain: 0.11 }); },
+      timeup()  { voice({ f: 330, to: 90, dur: 0.6, type: "sawtooth", gain: 0.17, lp: 1000 });
+                  voice({ f: 330, to: 90, dur: 0.6, type: "sawtooth", gain: 0.1, detune: -22, lp: 1000 });
+                  noise({ f: 900, to: 150, dur: 0.5, gain: 0.09 }); },
+      record()  { arp([N.C5, N.E5, N.G5, N.C6, N.G5, N.C6, N.E6], 0.085, { dur: 0.22, gain: 0.15 });
+                  voice({ at: 0.51, f: N.C6, dur: 0.7, gain: 0.13 });
+                  voice({ at: 0.51, f: N.G5, dur: 0.7, gain: 0.1 });
+                  voice({ at: 0.51, f: N.C4, dur: 0.7, type: "triangle", gain: 0.14 });
+                  noise({ at: 0.51, f: 6000, dur: 0.6, gain: 0.05, type: "highpass" }); }
+    };
+  })();
+
+  /* ---------- Vibración ---------- */
+
+  const Buzz = {
+    supported: typeof navigator.vibrate === "function",
+    on: localStorage.getItem("adivina.vibra") !== "0",
+    fire(pattern) { if (this.on && this.supported) navigator.vibrate(pattern); },
+    set(v) { this.on = v; localStorage.setItem("adivina.vibra", v ? "1" : "0"); if (v) this.fire(18); }
   };
-  const buzz = (ms) => { if (navigator.vibrate) navigator.vibrate(ms); };
+  const VIB = {
+    ui: 8, select: 14, start: [0, 40, 50, 40], tick: 16, go: 90,
+    hit: [0, 22, 32, 26], pass: 55, urgent: 14,
+    timeup: [0, 130, 70, 130, 70, 220], record: [0, 60, 45, 60, 45, 200]
+  };
 
   /* ---------- Pantallas ---------- */
 
@@ -680,7 +898,12 @@
   }
   window.addEventListener("resize", checkRotate);
   window.addEventListener("orientationchange", () => setTimeout(checkRotate, 120));
-  el.skipRotate.addEventListener("click", () => { S.skipRotate = true; checkRotate(); });
+  el.skipRotate.addEventListener("click", () => {
+    S.skipRotate = true;
+    Sound.ui();
+    Buzz.fire(VIB.ui);
+    checkRotate();
+  });
 
   /* ---------- Inicio ---------- */
 
@@ -700,7 +923,9 @@
       if (S.deck && S.deck.id === d.id) b.setAttribute("data-picked", "");
       b.addEventListener("click", () => {
         S.deck = d;
-        audio();
+        Sound.unlock();
+        Sound.select();
+        Buzz.fire(VIB.select);
         paintDecks();
         el.startBtn.disabled = false;
         el.startBtn.textContent = "Jugar · " + d.name;
@@ -709,12 +934,68 @@
     });
   }
 
+  function paintStats() {
+    const s = loadStats();
+    el.stGames.textContent = s.games;
+    el.stHits.textContent = s.hits;
+    el.stBest.textContent = s.best;
+  }
+
+  function paintReset(confirming) {
+    el.resetArea.innerHTML = "";
+    if (!confirming) {
+      const b = document.createElement("button");
+      b.className = "link";
+      b.type = "button";
+      b.textContent = "Borrar";
+      b.addEventListener("click", () => { Sound.ui(); Buzz.fire(VIB.ui); paintReset(true); });
+      el.resetArea.appendChild(b);
+      return;
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "confirm";
+    wrap.innerHTML = '<span class="ask">¿Borrar todo?</span>';
+
+    const yes = document.createElement("button");
+    yes.className = "danger";
+    yes.type = "button";
+    yes.textContent = "Sí, borrar";
+    yes.addEventListener("click", () => {
+      resetMetrics();
+      Sound.wipe();
+      Buzz.fire(VIB.pass);
+      paintReset(false);
+    });
+
+    const no = document.createElement("button");
+    no.className = "link";
+    no.type = "button";
+    no.textContent = "Cancelar";
+    no.addEventListener("click", () => { Sound.ui(); Buzz.fire(VIB.ui); paintReset(false); });
+
+    wrap.append(yes, no);
+    el.resetArea.appendChild(wrap);
+  }
+
+  // Borra récords y estadísticas. Las preferencias (sonido, vibración) se quedan.
+  function resetMetrics() {
+    DECKS.forEach((d) => localStorage.removeItem(bestKey(d.id)));
+    localStorage.removeItem(STATS_KEY);
+    S.teamScores = [0, 0];
+    S.turn = 0;
+    paintStats();
+    paintDecks();
+  }
+
   el.durations.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
     [...el.durations.children].forEach((c) => c.removeAttribute("data-on"));
     b.setAttribute("data-on", "");
     S.duration = Number(b.dataset.sec);
+    Sound.unlock();
+    Sound.ui();
+    Buzz.fire(VIB.ui);
   });
 
   el.teamToggle.addEventListener("click", () => {
@@ -723,9 +1004,33 @@
     el.teamToggle.setAttribute("aria-checked", String(S.teams));
     S.teamScores = [0, 0];
     S.turn = 0;
+    Sound.unlock();
+    Sound.toggle(S.teams);
+    Buzz.fire(VIB.ui);
   });
 
-  el.startBtn.addEventListener("click", () => { audio(); requestTilt(); beginRound(); });
+  el.soundToggle.addEventListener("click", () => {
+    Sound.on = !Sound.on;
+    el.soundToggle.toggleAttribute("data-on", Sound.on);
+    el.soundToggle.setAttribute("aria-checked", String(Sound.on));
+    Buzz.fire(VIB.ui);
+  });
+
+  el.vibraToggle.addEventListener("click", () => {
+    if (!Buzz.supported) return;
+    Buzz.set(!Buzz.on);
+    el.vibraToggle.toggleAttribute("data-on", Buzz.on);
+    el.vibraToggle.setAttribute("aria-checked", String(Buzz.on));
+    Sound.toggle(Buzz.on);
+  });
+
+  el.startBtn.addEventListener("click", () => {
+    Sound.unlock();
+    Sound.start();
+    Buzz.fire(VIB.start);
+    requestTilt();
+    beginRound();
+  });
 
   /* ---------- Inclinación ---------- */
 
@@ -798,19 +1103,23 @@
     let n = 3;
     el.count.textContent = n;
     el.count.setAttribute("data-pulse", "");
-    sfx.tick();
+    Sound.tick(0);
+    Buzz.fire(VIB.tick);
 
     const iv = setInterval(() => {
       n--;
       el.count.removeAttribute("data-pulse");
       void el.count.offsetWidth;
       el.count.setAttribute("data-pulse", "");
-      if (n > 0) { el.count.textContent = n; sfx.tick(); }
-      else {
+      if (n > 0) {
+        el.count.textContent = n;
+        Sound.tick(3 - n);
+        Buzz.fire(VIB.tick);
+      } else {
         clearInterval(iv);
         el.count.textContent = "¡YA!";
-        sfx.go();
-        buzz(60);
+        Sound.go();
+        Buzz.fire(VIB.go);
         setTimeout(startPlay, 550);
       }
     }, 900);
@@ -836,7 +1145,7 @@
     if (secs !== S.tickAt) {
       S.tickAt = secs;
       el.clock.textContent = secs;
-      if (secs <= 5 && secs > 0) { sfx.tick(); buzz(25); }
+      if (secs <= 5 && secs > 0) { Sound.urgent(); Buzz.fire(VIB.urgent); }
     }
     el.barFill.style.transform = "scaleX(" + (left / S.duration) + ")";
     el.bar.toggleAttribute("data-low", left / S.duration < 0.2);
@@ -854,7 +1163,7 @@
     S.locked = true;
     S.results.push({ word: S.queue[S.idx], hit: hit });
     S.idx++;
-    if (hit) { sfx.hit(); buzz([30, 40, 30]); } else { sfx.pass(); buzz(70); }
+    if (hit) { Sound.hit(); Buzz.fire(VIB.hit); } else { Sound.pass(); Buzz.fire(VIB.pass); }
     el.tally.textContent = S.results.filter((r) => r.hit).length;
     el.verdict.textContent = hit ? "¡BIEN!" : "PASO";
     el.play.setAttribute("data-flash", hit ? "hit" : "pass");
@@ -874,14 +1183,38 @@
     cancelAnimationFrame(S.rafId);
     el.play.removeAttribute("data-flash");
     releaseAwake();
-    sfx.end();
-    buzz([120, 60, 120]);
+    Sound.timeup();
+    Buzz.fire(VIB.timeup);
+    commitStats();
     showResults();
   }
 
   /* ---------- Resultados ---------- */
 
   function score() { return S.results.filter((r) => r.hit).length; }
+
+  // Las métricas se cierran al acabar la ronda; si luego corriges una palabra
+  // en el repaso, se reajustan sobre lo ya guardado en vez de contar de nuevo.
+  function commitStats() {
+    const s = score();
+    const st = loadStats();
+    st.games += 1;
+    st.hits += s;
+    st.best = Math.max(st.best, s);
+    saveStats(st);
+    S.committed = s;
+    paintStats();
+  }
+
+  function adjustStats() {
+    const s = score();
+    const st = loadStats();
+    st.hits = Math.max(0, st.hits + s - S.committed);
+    st.best = Math.max(st.best, s);
+    saveStats(st);
+    S.committed = s;
+    paintStats();
+  }
 
   function showResults() {
     const s = score();
@@ -894,7 +1227,10 @@
       localStorage.setItem(key, String(s));
       el.recordLine.textContent = "🏆 Nuevo récord en " + S.deck.name;
       el.recordLine.hidden = false;
-      if (s > 0) confetti();
+      if (s > 0) {
+        confetti();
+        setTimeout(() => { Sound.record(); Buzz.fire(VIB.record); }, 620);
+      }
     } else {
       el.recordLine.textContent = "Récord en " + S.deck.name + ": " + prev;
       el.recordLine.hidden = prev === 0;
@@ -939,6 +1275,7 @@
       b.addEventListener("click", () => {
         const was = S.results[i].hit;
         S.results[i].hit = !was;
+        if (was) { Sound.pass(); Buzz.fire(VIB.ui); } else { Sound.select(); Buzz.fire(VIB.select); }
         if (S.teams) S.teamScores[S.turn === 0 ? 1 : 0] += was ? -1 : 1;
         const s = score();
         el.finalScore.textContent = s;
@@ -955,6 +1292,7 @@
           el.recordLine.textContent = "🏆 Nuevo récord en " + S.deck.name;
           el.recordLine.hidden = false;
         }
+        adjustStats();
       });
       wrap.appendChild(b);
     });
@@ -968,11 +1306,20 @@
     el.reviewList.appendChild(wrap);
   }
 
-  el.againBtn.addEventListener("click", () => { audio(); beginRound(); });
+  el.againBtn.addEventListener("click", () => {
+    Sound.unlock();
+    Sound.start();
+    Buzz.fire(VIB.start);
+    beginRound();
+  });
+
   el.homeBtn.addEventListener("click", () => {
     S.teamScores = [0, 0];
     S.turn = 0;
+    Sound.wipe();
+    Buzz.fire(VIB.ui);
     paintDecks();
+    paintStats();
     show("home");
   });
 
@@ -1031,7 +1378,24 @@
     if (document.hidden && S.running) endRound();
   });
 
+  // Los navegadores sólo dejan sonar tras un gesto: el primer toque abre el audio.
+  document.addEventListener("pointerdown", () => Sound.unlock(), { once: true });
+
+  el.soundToggle.toggleAttribute("data-on", Sound.on);
+  el.soundToggle.setAttribute("aria-checked", String(Sound.on));
+
+  if (Buzz.supported) {
+    el.vibraToggle.toggleAttribute("data-on", Buzz.on);
+    el.vibraToggle.setAttribute("aria-checked", String(Buzz.on));
+  } else {
+    el.vibraToggle.disabled = true;
+    el.vibraToggle.setAttribute("aria-checked", "false");
+    el.vibraNote.hidden = false;
+  }
+
   paintDecks();
+  paintStats();
+  paintReset(false);
 })();
 </script>
 </body>
