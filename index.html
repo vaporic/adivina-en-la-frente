@@ -86,6 +86,36 @@
     line-height: 1.45;
   }
 
+  /* ---------- Instalación ---------- */
+
+  .install {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    padding: .9rem 1rem;
+    background: var(--surface);
+    border-radius: 1.1rem;
+  }
+  .install .txt { display: grid; gap: .15rem; flex: 1; min-width: 0; }
+  .install b {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: -.01em;
+    text-transform: uppercase;
+  }
+  .install span { font-size: .82rem; line-height: 1.35; color: var(--muted); }
+  .install button {
+    flex: none;
+    padding: .6rem 1rem;
+    border-radius: .75rem;
+    background: var(--lime);
+    color: var(--ink);
+    font-weight: 800;
+    font-size: .9rem;
+  }
+  .install button:active { transform: scale(.96); }
+
   .decks {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
@@ -521,6 +551,14 @@
       <p>Ponte el móvil en la frente. Tus amigos actúan, tú adivinas. Inclina abajo si aciertas, arriba para pasar.</p>
     </div>
 
+    <div class="install" id="install" hidden>
+      <div class="txt">
+        <b id="installTitle">Instálalo en el móvil</b>
+        <span id="installHint"></span>
+      </div>
+      <button type="button" id="installBtn" hidden>Instalar</button>
+    </div>
+
     <div class="decks" id="decks"></div>
 
     <div class="settings">
@@ -719,6 +757,8 @@
     decks: $("decks"), durations: $("durations"), teamToggle: $("teamToggle"),
     soundToggle: $("soundToggle"), vibraToggle: $("vibraToggle"), vibraNote: $("vibraNote"),
     resetArea: $("resetArea"), stGames: $("stGames"), stHits: $("stHits"), stBest: $("stBest"),
+    install: $("install"), installBtn: $("installBtn"),
+    installTitle: $("installTitle"), installHint: $("installHint"),
     startBtn: $("startBtn"), readyDeck: $("readyDeck"), readyHint: $("readyHint"),
     count: $("count"), bar: $("bar"), barFill: $("bar").firstElementChild,
     clock: $("clock"), tally: $("tally"), word: $("word"), verdict: $("verdict"),
@@ -877,6 +917,98 @@
     timeup: [0, 130, 70, 130, 70, 220], record: [0, 60, 45, 60, 45, 200]
   };
 
+  /* ---------- Pantalla completa y orientación ----------
+     Nada de esto está garantizado: dentro de un iframe el navegador lo
+     bloquea, y Safari en iPhone no tiene API de pantalla completa. Todo va
+     envuelto para que un fallo no corte la partida. Instalada como PWA, el
+     manifiesto ya arranca en fullscreen y esto sólo bloquea la rotación. */
+
+  const Immersive = {
+    // requestFullscreen exige un gesto: llámalo desde el propio manejador
+    // del botón, nunca después de un await.
+    enter() {
+      const root = document.documentElement;
+      const go = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (go && !document.fullscreenElement && !document.webkitFullscreenElement) {
+        try {
+          const p = go.call(root, { navigationUI: "hide" });
+          if (p && p.catch) p.catch(() => {});
+        } catch (_) { /* el navegador no quiere; seguimos en ventana */ }
+      }
+    },
+    exit() {
+      const out = document.exitFullscreen || document.webkitExitFullscreen;
+      if (out && (document.fullscreenElement || document.webkitFullscreenElement)) {
+        try {
+          const p = out.call(document);
+          if (p && p.catch) p.catch(() => {});
+        } catch (_) {}
+      }
+    },
+    lockLandscape() {
+      const o = screen.orientation;
+      if (o && o.lock) {
+        try {
+          const p = o.lock("landscape");
+          if (p && p.catch) p.catch(() => {});
+        } catch (_) {}
+      }
+    },
+    unlock() {
+      const o = screen.orientation;
+      if (o && o.unlock) { try { o.unlock(); } catch (_) {} }
+    }
+  };
+
+  /* ---------- Instalación ---------- */
+
+  const standalone = () =>
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: fullscreen)").matches ||
+    navigator.standalone === true;
+
+  const isIOS = () =>
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  let installEvent = null;
+
+  // El manifiesto sólo lo inyecta build.py en la versión de GitHub Pages. Sin
+  // él no hay nada que instalar, así que la tarjeta ni aparece.
+  const installable = () => !!document.querySelector('link[rel="manifest"]');
+
+  function paintInstall() {
+    if (!installable() || standalone()) { el.install.hidden = true; return; }
+
+    if (installEvent) {
+      el.install.hidden = false;
+      el.installBtn.hidden = false;
+      el.installTitle.textContent = "Instálalo en el móvil";
+      el.installHint.textContent = "Se abre a pantalla completa y funciona sin internet.";
+      return;
+    }
+    // iOS no tiene API de instalación: sólo se puede explicar el camino.
+    if (isIOS()) {
+      el.install.hidden = false;
+      el.installBtn.hidden = true;
+      el.installTitle.textContent = "Añádelo a tu pantalla de inicio";
+      el.installHint.textContent = "En Safari: Compartir → «Añadir a pantalla de inicio». Se abre sin barras y sin internet.";
+      return;
+    }
+    el.install.hidden = true;
+  }
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installEvent = e;
+    paintInstall();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    installEvent = null;
+    el.install.hidden = true;
+  });
+
   /* ---------- Pantallas ---------- */
 
   function show(name) {
@@ -1025,7 +1157,23 @@
     Sound.start();
     Buzz.fire(VIB.start);
     requestTilt();
+    Immersive.enter();
     beginRound();
+  });
+
+  el.installBtn.addEventListener("click", async () => {
+    if (!installEvent) return;
+    Sound.ui();
+    Buzz.fire(VIB.ui);
+    const e = installEvent;
+    installEvent = null;
+    el.installBtn.disabled = true;
+    try {
+      e.prompt();
+      await e.userChoice;
+    } catch (_) { /* el usuario cerró el diálogo */ }
+    el.installBtn.disabled = false;
+    paintInstall();
   });
 
   /* ---------- Inclinación ---------- */
@@ -1091,6 +1239,7 @@
     S.armed = true;
     S.running = false;
     keepAwake();
+    Immersive.lockLandscape();
 
     el.readyDeck.textContent = S.teams ? "Equipo " + (S.turn === 0 ? "A" : "B") + " · " + S.deck.name : S.deck.name;
     el.readyHint.textContent = "Móvil en la frente, pantalla hacia fuera";
@@ -1179,6 +1328,9 @@
     cancelAnimationFrame(S.rafId);
     el.play.removeAttribute("data-flash");
     releaseAwake();
+    // Se suelta la rotación para leer el repaso en vertical; la pantalla
+    // completa se mantiene hasta que vuelvas al menú.
+    Immersive.unlock();
     Sound.timeup();
     Buzz.fire(VIB.timeup);
     commitStats();
@@ -1306,6 +1458,7 @@
     Sound.unlock();
     Sound.start();
     Buzz.fire(VIB.start);
+    Immersive.enter();
     beginRound();
   });
 
@@ -1314,6 +1467,8 @@
     S.turn = 0;
     Sound.wipe();
     Buzz.fire(VIB.ui);
+    Immersive.unlock();
+    if (!standalone()) Immersive.exit();
     paintDecks();
     paintStats();
     show("home");
@@ -1392,5 +1547,6 @@
   paintDecks();
   paintStats();
   paintReset(false);
+  paintInstall();
 })();
 </script>

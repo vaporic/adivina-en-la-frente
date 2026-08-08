@@ -22,21 +22,37 @@ teléfono en la frente, tus amigos actúan y tú adivinas antes de que se acabe 
 - Banda sonora chiptune sintetizada en el navegador y vibración, ambas desactivables.
 - Aviso de "gira el teléfono" y bloqueo del apagado de pantalla mientras juegas.
 
+- Instalable como PWA: se juega sin conexión y arranca sin barras del navegador.
+
 Sin dependencias, sin build de terceros, sin red: un único archivo HTML.
+
+## Instalar en el móvil
+
+- **Android / Chrome / Edge**: aparece una tarjeta *Instalar* en la pantalla de inicio del juego.
+- **iPhone / iPad**: Safari → Compartir → *Añadir a pantalla de inicio*. Apple no ofrece
+  API de instalación, así que ahí sólo se puede explicar el camino.
+
+Una vez instalado arranca en pantalla completa y funciona sin datos.
 
 ## Estructura
 
 | Archivo | Para qué sirve |
 | --- | --- |
 | `index.html` | El juego. Fuente único de la verdad. |
-| `build.py` | Envuelve el fuente en un documento HTML completo. |
+| `build.py` | Envuelve el fuente en un documento completo e inyecta lo de la PWA. |
+| `icons.py` | Genera los iconos. Sólo hace falta si cambia la marca. |
 | `docs/index.html` | Lo que sirve GitHub Pages. **Generado — no editar a mano.** |
+| `docs/manifest.webmanifest`, `docs/sw.js`, `docs/icons/` | La parte PWA. |
 
 Tras tocar `index.html`:
 
 ```bash
 python3 build.py
 ```
+
+El manifiesto y el service worker se inyectan sólo en la copia de `docs/`: en el Artifact
+esos archivos no existen y la CSP bloquearía la petición, así que el fuente se queda limpio.
+Al subir una versión nueva, sube `CACHE` en `docs/sw.js`.
 
 ## Control por inclinación
 
@@ -63,6 +79,15 @@ sature. Hay arpegios distintos para acertar, pasar, empezar ronda, últimos cinc
 fin de tiempo y récord nuevo.
 
 Apagar el sonido no baja el volumen: deja de crear nodos.
+
+## Pantalla completa
+
+Al empezar una ronda el juego pide `requestFullscreen()` y bloquea la rotación en horizontal
+con `screen.orientation.lock()`; al acabar suelta la rotación para que leas el repaso en
+vertical. Ninguna de las dos está garantizada — dentro de un `iframe` el navegador las
+bloquea y **Safari en iPhone no tiene API de pantalla completa** — así que ambas van
+envueltas y un fallo nunca corta la partida. En iPhone, la forma de jugar sin barras es
+instalarlo desde Safari.
 
 ## Vibración
 
