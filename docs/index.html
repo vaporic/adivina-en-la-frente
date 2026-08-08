@@ -589,11 +589,13 @@
         <span class="label">Sonido</span>
         <button class="switch" id="soundToggle" role="switch" aria-checked="true" aria-label="Sonido"></button>
       </div>
+      <p class="note" id="soundNote" hidden>En iPhone, sube el volumen con los botones laterales mientras suena.</p>
       <div class="row">
         <span class="label">Vibración</span>
+        <span class="note" id="vibraState" hidden>No disponible</span>
         <button class="switch" id="vibraToggle" role="switch" aria-checked="true" aria-label="Vibración"></button>
       </div>
-      <p class="note" id="vibraNote" hidden>Tu navegador no permite vibrar. En iPhone, Safari nunca lo permite.</p>
+      <p class="note" id="vibraNote" hidden>iOS no deja vibrar a ninguna web, ni en Safari ni en Chrome. En Android sí funciona.</p>
     </div>
 
     <div class="metrics">
@@ -766,7 +768,8 @@
   const el = {
     home: $("home"), ready: $("ready"), play: $("play"), results: $("results"),
     decks: $("decks"), durations: $("durations"), teamToggle: $("teamToggle"),
-    soundToggle: $("soundToggle"), vibraToggle: $("vibraToggle"), vibraNote: $("vibraNote"),
+    soundToggle: $("soundToggle"), soundNote: $("soundNote"),
+    vibraToggle: $("vibraToggle"), vibraNote: $("vibraNote"), vibraState: $("vibraState"),
     resetArea: $("resetArea"), stGames: $("stGames"), stHits: $("stHits"), stBest: $("stBest"),
     install: $("install"), installBtn: $("installBtn"),
     installTitle: $("installTitle"), installHint: $("installHint"),
@@ -787,8 +790,9 @@
      no sature. */
 
   const Sound = (() => {
-    let ctx = null, master = null, noiseBuf = null;
+    let ctx = null, master = null, noiseBuf = null, primed = false;
     let on = localStorage.getItem("adivina.sound") !== "0";
+    let C = null;  // contexto activo mientras corre un play()
 
     function boot() {
       if (ctx) return ctx;
@@ -804,17 +808,21 @@
       return ctx;
     }
 
-    function live() {
-      if (!on) return null;
+    // Mientras el contexto está suspendido, currentTime se queda congelado en
+    // cero. Si programamos notas ahí caen en el pasado y no suena nada: es
+    // exactamente lo que pasaba en iOS, donde reanudar tarda un instante.
+    // Por eso todo efecto entra por aquí, que espera a que el reloj corra.
+    function play(fn) {
+      if (!on) return;
       const c = boot();
-      if (!c) return null;
-      if (c.state === "suspended") c.resume();
-      return c;
+      if (!c) return;
+      if (c.state === "running") { C = c; fn(); C = null; return; }
+      c.resume().then(() => { C = c; fn(); C = null; }).catch(() => {});
     }
 
     // Una voz tonal: frecuencia fija o deslizada, con envolvente exponencial.
     function voice(o) {
-      const c = live();
+      const c = C;
       if (!c) return;
       const t0 = c.currentTime + (o.at || 0);
       const dur = o.dur;
@@ -842,7 +850,7 @@
 
     // Percusión y brillo: ruido blanco pasado por un filtro que barre.
     function noise(o) {
-      const c = live();
+      const c = C;
       if (!c) return;
       if (!noiseBuf) {
         noiseBuf = c.createBuffer(1, Math.floor(c.sampleRate * 0.6), c.sampleRate);
@@ -878,39 +886,62 @@
       set on(v) {
         on = v;
         localStorage.setItem("adivina.sound", v ? "1" : "0");
-        if (v) { boot(); this.toggle(true); }
+        if (v) { this.unlock(); this.toggle(true); }
       },
-      unlock() { live(); },
+
+      // Se llama desde el gesto del usuario. Tres cosas, y las tres importan
+      // en iOS: declarar la sesión como reproducción, reanudar el contexto y
+      // disparar un buffer mudo, que es lo que WebKit espera para dar permiso.
+      unlock() {
+        if (!on) return;
+        const c = boot();
+        if (!c) return;
+        try {
+          // Safari 16.4+: sin esto el interruptor físico de silencio del
+          // iPhone también calla el audio de la web.
+          if (navigator.audioSession) navigator.audioSession.type = "playback";
+        } catch (_) {}
+        if (c.state !== "running") c.resume().catch(() => {});
+        if (!primed) {
+          primed = true;
+          try {
+            const s = c.createBufferSource();
+            s.buffer = c.createBuffer(1, 1, 22050);
+            s.connect(c.destination);
+            s.start(0);
+          } catch (_) {}
+        }
+      },
 
       // Interfaz
-      ui()      { voice({ f: 900, dur: 0.035, gain: 0.07 }); noise({ f: 3200, dur: 0.022, gain: 0.045 }); },
-      select()  { arp([N.E5, N.A5], 0.05, { dur: 0.09, gain: 0.12 }); noise({ f: 2600, dur: 0.03, gain: 0.05 }); },
-      toggle(v) { arp(v ? [N.G5, N.D6] : [N.G5, N.C5], 0.05, { dur: 0.09, gain: 0.11 }); },
-      wipe()    { voice({ f: 520, to: 90, dur: 0.34, type: "sawtooth", gain: 0.13, lp: 1400 });
-                  noise({ f: 1800, to: 200, dur: 0.34, gain: 0.09 }); },
+      ui()      { play(() => { voice({ f: 900, dur: 0.035, gain: 0.07 }); noise({ f: 3200, dur: 0.022, gain: 0.045 }); }); },
+      select()  { play(() => { arp([N.E5, N.A5], 0.05, { dur: 0.09, gain: 0.12 }); noise({ f: 2600, dur: 0.03, gain: 0.05 }); }); },
+      toggle(v) { play(() => { arp(v ? [N.G5, N.D6] : [N.G5, N.C5], 0.05, { dur: 0.09, gain: 0.11 }); }); },
+      wipe()    { play(() => { voice({ f: 520, to: 90, dur: 0.34, type: "sawtooth", gain: 0.13, lp: 1400 });
+                               noise({ f: 1800, to: 200, dur: 0.34, gain: 0.09 }); }); },
 
       // Partida
-      start()   { arp([N.C5, N.E5, N.G5, N.C6], 0.075, { dur: 0.2, gain: 0.15 });
-                  voice({ f: N.C4, dur: 0.3, type: "triangle", gain: 0.16 }); },
-      tick(i)   { voice({ f: [N.C5, N.D5, N.E5][i] || N.C5, dur: 0.09, gain: 0.13 }); },
-      go()      { [N.C5, N.E5, N.G5, N.C6].forEach((f) => voice({ f: f, dur: 0.32, gain: 0.11 }));
-                  noise({ f: 400, to: 4000, dur: 0.28, gain: 0.1 }); },
+      start()   { play(() => { arp([N.C5, N.E5, N.G5, N.C6], 0.075, { dur: 0.2, gain: 0.15 });
+                               voice({ f: N.C4, dur: 0.3, type: "triangle", gain: 0.16 }); }); },
+      tick(i)   { play(() => { voice({ f: [N.C5, N.D5, N.E5][i] || N.C5, dur: 0.09, gain: 0.13 }); }); },
+      go()      { play(() => { [N.C5, N.E5, N.G5, N.C6].forEach((f) => voice({ f: f, dur: 0.32, gain: 0.11 }));
+                               noise({ f: 400, to: 4000, dur: 0.28, gain: 0.1 }); }); },
 
-      hit()     { arp([N.G5, N.C6, N.E6], 0.055, { dur: 0.17, gain: 0.16 });
-                  voice({ f: N.C4, dur: 0.13, type: "triangle", gain: 0.14 });
-                  noise({ at: 0.11, f: 5200, dur: 0.12, gain: 0.06, type: "highpass" }); },
-      pass()    { voice({ f: N.G4, to: 140, dur: 0.24, gain: 0.15, lp: 1100 });
-                  noise({ f: 700, to: 200, dur: 0.16, gain: 0.07 }); },
+      hit()     { play(() => { arp([N.G5, N.C6, N.E6], 0.055, { dur: 0.17, gain: 0.16 });
+                               voice({ f: N.C4, dur: 0.13, type: "triangle", gain: 0.14 });
+                               noise({ at: 0.11, f: 5200, dur: 0.12, gain: 0.06, type: "highpass" }); }); },
+      pass()    { play(() => { voice({ f: N.G4, to: 140, dur: 0.24, gain: 0.15, lp: 1100 });
+                               noise({ f: 700, to: 200, dur: 0.16, gain: 0.07 }); }); },
 
-      urgent()  { voice({ f: N.C6, dur: 0.07, gain: 0.11 }); },
-      timeup()  { voice({ f: 330, to: 90, dur: 0.6, type: "sawtooth", gain: 0.17, lp: 1000 });
-                  voice({ f: 330, to: 90, dur: 0.6, type: "sawtooth", gain: 0.1, detune: -22, lp: 1000 });
-                  noise({ f: 900, to: 150, dur: 0.5, gain: 0.09 }); },
-      record()  { arp([N.C5, N.E5, N.G5, N.C6, N.G5, N.C6, N.E6], 0.085, { dur: 0.22, gain: 0.15 });
-                  voice({ at: 0.51, f: N.C6, dur: 0.7, gain: 0.13 });
-                  voice({ at: 0.51, f: N.G5, dur: 0.7, gain: 0.1 });
-                  voice({ at: 0.51, f: N.C4, dur: 0.7, type: "triangle", gain: 0.14 });
-                  noise({ at: 0.51, f: 6000, dur: 0.6, gain: 0.05, type: "highpass" }); }
+      urgent()  { play(() => { voice({ f: N.C6, dur: 0.07, gain: 0.11 }); }); },
+      timeup()  { play(() => { voice({ f: 330, to: 90, dur: 0.6, type: "sawtooth", gain: 0.17, lp: 1000 });
+                               voice({ f: 330, to: 90, dur: 0.6, type: "sawtooth", gain: 0.1, detune: -22, lp: 1000 });
+                               noise({ f: 900, to: 150, dur: 0.5, gain: 0.09 }); }); },
+      record()  { play(() => { arp([N.C5, N.E5, N.G5, N.C6, N.G5, N.C6, N.E6], 0.085, { dur: 0.22, gain: 0.15 });
+                               voice({ at: 0.51, f: N.C6, dur: 0.7, gain: 0.13 });
+                               voice({ at: 0.51, f: N.G5, dur: 0.7, gain: 0.1 });
+                               voice({ at: 0.51, f: N.C4, dur: 0.7, type: "triangle", gain: 0.14 });
+                               noise({ at: 0.51, f: 6000, dur: 0.6, gain: 0.05, type: "highpass" }); }); }
     };
   })();
 
@@ -1545,13 +1576,15 @@
 
   el.soundToggle.toggleAttribute("data-on", Sound.on);
   el.soundToggle.setAttribute("aria-checked", String(Sound.on));
+  el.soundNote.hidden = !isIOS();
 
   if (Buzz.supported) {
     el.vibraToggle.toggleAttribute("data-on", Buzz.on);
     el.vibraToggle.setAttribute("aria-checked", String(Buzz.on));
   } else {
-    el.vibraToggle.disabled = true;
-    el.vibraToggle.setAttribute("aria-checked", "false");
+    // Un interruptor muerto se lee como avería. Mejor quitarlo y decir por qué.
+    el.vibraToggle.hidden = true;
+    el.vibraState.hidden = false;
     el.vibraNote.hidden = false;
   }
 

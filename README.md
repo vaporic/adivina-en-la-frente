@@ -80,6 +80,15 @@ fin de tiempo y récord nuevo.
 
 Apagar el sonido no baja el volumen: deja de crear nodos.
 
+**iOS necesita cuidado extra.** Mientras un `AudioContext` está suspendido, `currentTime` se
+queda congelado en cero; si programas notas contra ese reloj, toda la envolvente cae en el
+pasado y para cuando el audio arranca de verdad ya no queda nada que oír — silencio absoluto,
+sin ningún error. Por eso cada efecto pasa por `play()`, que espera a que el contexto esté
+realmente en `running` antes de programar nada. Además, al primer gesto se declara
+`navigator.audioSession.type = "playback"` (Safari 16.4+), sin lo cual el interruptor físico
+de silencio del iPhone calla también el audio de la web, y se dispara un buffer mudo, que es
+el ritual que WebKit espera para dar permiso.
+
 ## Pantalla completa
 
 Al empezar una ronda el juego pide `requestFullscreen()` y bloquea la rotación en horizontal
@@ -91,6 +100,7 @@ instalarlo desde Safari.
 
 ## Vibración
 
-`navigator.vibrate` con un patrón por evento. **Safari en iPhone no la soporta** — ninguna web
-puede vibrar en iOS. Cuando el navegador no la permite, el interruptor sale desactivado con su
-explicación en vez de fingir que funciona.
+`navigator.vibrate` con un patrón por evento. **En iOS no funciona en ningún navegador** —
+tampoco en Chrome, que allí es WebKit por obligación. No es una carencia de Safari que se
+pueda rodear: el motor no expone la API. Donde no está, la fila esconde el interruptor y
+muestra «No disponible» con el motivo, porque un interruptor muerto se lee como avería.

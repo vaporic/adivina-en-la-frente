@@ -3,7 +3,7 @@
    jugar sin red. La página va a red primero para que un despliegue nuevo se
    vea al momento; los iconos van a caché primero porque no cambian. */
 
-const CACHE = "adivina-v1";
+const CACHE = "adivina-v2";
 
 const ASSETS = [
   "./",
