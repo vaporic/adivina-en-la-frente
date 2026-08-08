@@ -1,0 +1,1032 @@
+<meta charset="utf-8">
+<title>¡Adivina! — juego de mímica para la frente</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#170B26">
+
+<style>
+  :root {
+    --ink:      #170B26;
+    --ink-2:    #251038;
+    --surface:  #331A4D;
+    --surface-2:#432164;
+    --cream:    #FFF4E8;
+    --muted:    #A98CC4;
+    --coral:    #FF3D6E;
+    --lime:     #B8FF3C;
+    --amber:    #FFB021;
+
+    --display: "Avenir Next", "Futura", "Trebuchet MS", system-ui, sans-serif;
+    --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    --pad: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right));
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    background: var(--ink);
+    color: var(--cream);
+    font-family: var(--ui);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #app {
+    position: fixed;
+    inset: 0;
+    display: grid;
+  }
+
+  .screen {
+    grid-area: 1 / 1;
+    display: none;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .screen[data-on] { display: flex; }
+
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--lime); outline-offset: 3px; border-radius: 4px; }
+
+  /* ---------- INICIO ---------- */
+
+  #home {
+    overflow-y: auto;
+    padding: max(1.25rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+             max(1.25rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+    gap: 1.5rem;
+  }
+
+  .lockup { display: flex; flex-direction: column; gap: .4rem; padding-top: .5rem; }
+
+  .lockup h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(2.6rem, 14vw, 4.5rem);
+    line-height: .88;
+    letter-spacing: -.03em;
+    text-transform: uppercase;
+    text-wrap: balance;
+  }
+  .lockup h1 em { font-style: normal; color: var(--coral); }
+
+  .lockup p {
+    color: var(--muted);
+    font-size: .95rem;
+    max-width: 34ch;
+    line-height: 1.45;
+  }
+
+  .decks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+    gap: .75rem;
+  }
+
+  .deck {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    padding: 1rem .9rem 1.1rem;
+    background: var(--surface);
+    border-radius: 1.1rem;
+    text-align: left;
+    border: 2px solid transparent;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease;
+  }
+  .deck:active { transform: scale(.965); }
+  .deck .ico { font-size: 1.9rem; line-height: 1; }
+  .deck .nm {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 1.05rem;
+    letter-spacing: -.01em;
+    text-transform: uppercase;
+  }
+  .deck .best {
+    font-size: .72rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    min-height: 1em;
+  }
+  .deck[data-picked] {
+    border-color: var(--coral);
+    background: var(--surface-2);
+  }
+
+  .settings { display: flex; flex-direction: column; gap: .9rem; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+
+  .label {
+    font-size: .74rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .segmented { display: flex; gap: .35rem; background: var(--ink-2); padding: .25rem; border-radius: .8rem; }
+  .segmented button {
+    padding: .45rem .8rem;
+    border-radius: .6rem;
+    font-size: .9rem;
+    font-weight: 600;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .segmented button[data-on] { background: var(--coral); color: var(--ink); }
+
+  .switch {
+    width: 3.4rem; height: 1.9rem;
+    border-radius: 1rem;
+    background: var(--ink-2);
+    position: relative;
+    transition: background .15s ease;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: .25rem; left: .25rem;
+    width: 1.4rem; height: 1.4rem;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: transform .15s ease, background .15s ease;
+  }
+  .switch[data-on] { background: var(--lime); }
+  .switch[data-on]::after { transform: translateX(1.5rem); background: var(--ink); }
+
+  .start {
+    margin-top: auto;
+    padding: 1.15rem;
+    border-radius: 1.1rem;
+    background: var(--coral);
+    color: var(--ink);
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 1.35rem;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    transition: transform .12s ease, opacity .12s ease;
+  }
+  .start:active { transform: scale(.97); }
+  .start:disabled { opacity: .35; cursor: default; }
+
+  .howto {
+    display: grid;
+    gap: .6rem;
+    padding: 1rem;
+    background: var(--ink-2);
+    border-radius: 1.1rem;
+  }
+  .howto li { display: flex; gap: .7rem; align-items: baseline; font-size: .88rem; line-height: 1.4; color: var(--cream); }
+  .howto li span:first-child { flex: none; width: 1.6rem; font-size: 1.1rem; text-align: center; }
+  .howto ul { list-style: none; display: grid; gap: .55rem; }
+
+  /* ---------- PREPARACIÓN ---------- */
+
+  #ready {
+    align-items: center;
+    justify-content: center;
+    gap: 1.75rem;
+    padding: var(--pad);
+    text-align: center;
+  }
+
+  .count {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(6rem, 34vmin, 16rem);
+    line-height: 1;
+    letter-spacing: -.05em;
+    color: var(--lime);
+  }
+  .count[data-pulse] { animation: pop .55s cubic-bezier(.2,.9,.3,1); }
+  @keyframes pop {
+    0%   { transform: scale(.55); opacity: 0; }
+    45%  { transform: scale(1.06); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  #ready .hint {
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 24ch;
+    line-height: 1.4;
+  }
+  #ready .deckname {
+    font-family: var(--display);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: 1rem;
+    color: var(--coral);
+  }
+
+  /* ---------- JUEGO ---------- */
+
+  #play {
+    position: relative;
+    align-items: center;
+    justify-content: center;
+    padding: var(--pad);
+    background: var(--ink);
+    transition: background .18s ease;
+  }
+  #play[data-flash="hit"]  { background: var(--lime); }
+  #play[data-flash="pass"] { background: var(--amber); }
+
+  .bar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: .5rem;
+    background: rgba(255,255,255,.09);
+  }
+  .bar i {
+    display: block;
+    height: 100%;
+    background: var(--coral);
+    transform-origin: left;
+    transition: transform .25s linear, background .25s ease;
+  }
+  .bar[data-low] i { background: var(--cream); }
+
+  .clock {
+    position: absolute;
+    top: 1.1rem; right: max(1.1rem, env(safe-area-inset-right));
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 1.5rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+  .tally {
+    position: absolute;
+    top: 1.1rem; left: max(1.1rem, env(safe-area-inset-left));
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 1.5rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--lime);
+  }
+
+  .word {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(2.2rem, 12.5vmin, 7.5rem);
+    line-height: .95;
+    letter-spacing: -.025em;
+    text-transform: uppercase;
+    text-align: center;
+    text-wrap: balance;
+    max-width: 15ch;
+    padding: 0 .5rem;
+  }
+  #play[data-flash] .word { color: var(--ink); }
+
+  .verdict {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(3rem, 18vmin, 9rem);
+    letter-spacing: -.03em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  #play[data-flash] .verdict { display: flex; }
+  #play[data-flash] .word { visibility: hidden; }
+
+  .zones { position: absolute; inset: 0; display: flex; }
+  .zones button { flex: 1; height: 100%; }
+
+  .legend {
+    position: absolute;
+    bottom: max(.9rem, env(safe-area-inset-bottom));
+    left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: var(--pad);
+    font-size: .72rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  #play[data-flash] .legend, #play[data-flash] .clock, #play[data-flash] .tally { opacity: 0; }
+
+  /* ---------- RESULTADOS ---------- */
+
+  #results {
+    overflow-y: auto;
+    padding: max(1.25rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+             max(1.25rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+    gap: 1.25rem;
+  }
+
+  .score { display: flex; align-items: baseline; gap: .7rem; }
+  .score b {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(4rem, 22vw, 7rem);
+    line-height: .85;
+    letter-spacing: -.04em;
+    color: var(--lime);
+    font-variant-numeric: tabular-nums;
+  }
+  .score span { font-size: 1rem; color: var(--muted); max-width: 12ch; line-height: 1.3; }
+
+  .record {
+    font-size: .8rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--amber);
+  }
+
+  .review { display: grid; gap: .4rem; }
+  .review > .label { margin-bottom: .2rem; }
+
+  .item {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    width: 100%;
+    padding: .7rem .85rem;
+    background: var(--surface);
+    border-radius: .75rem;
+    text-align: left;
+    border-left: 4px solid var(--amber);
+  }
+  .item[data-hit] { border-left-color: var(--lime); }
+  .item .mark { flex: none; font-size: 1rem; width: 1.2rem; text-align: center; }
+  .item .txt { flex: 1; font-size: .95rem; font-weight: 600; }
+  .item[data-hit] .txt { color: var(--cream); }
+  .item:not([data-hit]) .txt { color: var(--muted); }
+
+  .teamboard { display: flex; gap: .6rem; }
+  .teamboard div {
+    flex: 1;
+    padding: .8rem .9rem;
+    background: var(--ink-2);
+    border-radius: .9rem;
+    display: grid;
+    gap: .15rem;
+  }
+  .teamboard div[data-turn] { background: var(--surface-2); }
+  .teamboard b {
+    font-family: var(--display);
+    font-size: 1.9rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .actions { margin-top: auto; display: grid; gap: .6rem; }
+  .ghost {
+    padding: 1rem;
+    border-radius: 1.1rem;
+    background: var(--surface);
+    font-weight: 700;
+    font-size: 1rem;
+  }
+  .ghost:active { transform: scale(.97); }
+
+  /* ---------- ROTAR ---------- */
+
+  #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    padding: 2rem;
+    background: var(--ink);
+    text-align: center;
+  }
+  #rotate[data-on] { display: flex; }
+  #rotate .phone {
+    width: 4.5rem; height: 7.5rem;
+    border: 4px solid var(--cream);
+    border-radius: .9rem;
+    animation: turn 2.2s ease-in-out infinite;
+  }
+  @keyframes turn {
+    0%, 30%   { transform: rotate(0deg); }
+    55%, 85%  { transform: rotate(-90deg); }
+    100%      { transform: rotate(0deg); }
+  }
+  #rotate p { font-family: var(--display); font-weight: 800; font-size: 1.5rem; text-transform: uppercase; letter-spacing: -.01em; }
+  #rotate button { color: var(--muted); font-size: .9rem; text-decoration: underline; text-underline-offset: 4px; }
+
+  canvas.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+
+<div id="app">
+
+  <section class="screen" id="home" data-on>
+    <div class="lockup">
+      <h1>Adivina<br><em>en la frente</em></h1>
+      <p>Ponte el móvil en la frente. Tus amigos actúan, tú adivinas. Inclina abajo si aciertas, arriba para pasar.</p>
+    </div>
+
+    <div class="decks" id="decks"></div>
+
+    <div class="settings">
+      <div class="row">
+        <span class="label">Duración</span>
+        <div class="segmented" id="durations">
+          <button data-sec="60" data-on>60 s</button>
+          <button data-sec="90">90 s</button>
+          <button data-sec="120">120 s</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="label">Modo equipos</span>
+        <button class="switch" id="teamToggle" role="switch" aria-checked="false" aria-label="Modo equipos"></button>
+      </div>
+    </div>
+
+    <div class="howto">
+      <span class="label">Cómo se juega</span>
+      <ul>
+        <li><span>📱</span><span>Sujeta el móvil en la frente, en horizontal, con la pantalla hacia tus amigos.</span></li>
+        <li><span>👇</span><span>Inclina hacia abajo cuando aciertes.</span></li>
+        <li><span>👆</span><span>Inclina hacia arriba para pasar.</span></li>
+        <li><span>👉</span><span>¿No responde la inclinación? Toca la mitad derecha para acertar y la izquierda para pasar.</span></li>
+      </ul>
+    </div>
+
+    <button class="start" id="startBtn" disabled>Elige un mazo</button>
+  </section>
+
+  <section class="screen" id="ready">
+    <div class="deckname" id="readyDeck"></div>
+    <div class="count" id="count">3</div>
+    <div class="hint" id="readyHint">Móvil en la frente, pantalla hacia fuera</div>
+  </section>
+
+  <section class="screen" id="play">
+    <div class="bar" id="bar"><i></i></div>
+    <div class="tally" id="tally">0</div>
+    <div class="clock" id="clock">60</div>
+    <div class="word" id="word"></div>
+    <div class="verdict" id="verdict"></div>
+    <div class="zones">
+      <button id="zonePass" aria-label="Pasar"></button>
+      <button id="zoneHit" aria-label="Acertar"></button>
+    </div>
+    <div class="legend"><span>← Paso</span><span>Acierto →</span></div>
+  </section>
+
+  <section class="screen" id="results">
+    <div class="score">
+      <b id="finalScore">0</b>
+      <span id="scoreLabel">aciertos</span>
+    </div>
+    <div class="record" id="recordLine" hidden></div>
+    <div class="teamboard" id="teamboard" hidden></div>
+    <div class="review">
+      <span class="label">Toca una palabra para corregirla</span>
+      <div id="reviewList"></div>
+    </div>
+    <div class="actions">
+      <button class="start" id="againBtn">Otra ronda</button>
+      <button class="ghost" id="homeBtn">Cambiar mazo</button>
+    </div>
+  </section>
+
+</div>
+
+<div id="rotate">
+  <div class="phone"></div>
+  <p>Gira el teléfono</p>
+  <button id="skipRotate">Seguir en vertical</button>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ---------- Mazos ---------- */
+
+  const DECKS = [
+    { id: "peliculas", name: "Películas", icon: "🎬", words: [
+      "Titanic","El Rey León","Jurassic Park","Frozen","Shrek","Toy Story","Matrix","Avatar","Coco","Up",
+      "Los Vengadores","Harry Potter","El Padrino","Buscando a Nemo","Star Wars","Piratas del Caribe","Spider-Man",
+      "Batman","Cars","Ratatouille","Zootopia","Encanto","Moana","Rocky","Volver al Futuro","Indiana Jones",
+      "Tiburón","El Exorcista","Mi Pobre Angelito","Grease","Mamma Mia","Gladiador","Interestelar","Parásitos",
+      "El Laberinto del Fauno","Rápido y Furioso","Los Increíbles","Madagascar","La La Land","Barbie"
+    ]},
+    { id: "animales", name: "Animales", icon: "🐘", words: [
+      "Elefante","Jirafa","Pingüino","Canguro","Cocodrilo","Murciélago","Pulpo","Tiburón","Mariposa","Caracol",
+      "Erizo","Perezoso","Camello","Búho","Flamenco","Hipopótamo","Rinoceronte","Ardilla","Mapache","Zorro",
+      "Lobo","Oso panda","Koala","Gorila","Chimpancé","Serpiente","Tortuga","Rana","Abeja","Hormiga",
+      "Águila","Delfín","Ballena","Medusa","Cangrejo","Avestruz","Llama","Burro","Gallo","Loro"
+    ]},
+    { id: "comida", name: "Comida", icon: "🌮", words: [
+      "Taco","Pizza","Sushi","Paella","Arepa","Empanada","Guacamole","Churros","Ceviche","Asado",
+      "Hamburguesa","Helado","Palomitas","Sandía","Aguacate","Chocolate","Café","Tortilla","Croqueta","Gazpacho",
+      "Ramen","Sopa de fideos","Ensalada","Pan de muerto","Flan","Tamal","Chilaquiles","Alfajor","Dulce de leche",
+      "Mole","Pupusa","Pastel de cumpleaños","Palomitas de maíz","Miel","Queso","Espagueti","Panqueques","Limonada","Nachos","Brownie"
+    ]},
+    { id: "famosos", name: "Famosos", icon: "⭐", words: [
+      "Shakira","Messi","Bad Bunny","Rosalía","Cristiano Ronaldo","Beyoncé","Taylor Swift","Michael Jackson",
+      "Frida Kahlo","Einstein","Cleopatra","Elvis Presley","Charlie Chaplin","Mr. Bean","Freddie Mercury",
+      "Karol G","Luis Miguel","Selena","Maradona","Rafa Nadal","Penélope Cruz","Salma Hayek","Antonio Banderas",
+      "Gandhi","Napoleón","Da Vinci","Picasso","Elon Musk","Oprah","Adele","Dua Lipa","Peso Pluma","J Balvin",
+      "Ricky Martin","Sofía Vergara","Gael García Bernal","Pedro Pascal","Bruno Mars","Lady Gaga","Cantinflas"
+    ]},
+    { id: "mimica", name: "Mímica", icon: "🕺", words: [
+      "Lavarse los dientes","Escalar una montaña","Nadar","Planchar","Tocar la guitarra","Cortar el césped",
+      "Hacer yoga","Sacar una foto","Dormir de pie","Comer picante","Bailar salsa","Torear","Pescar",
+      "Meter un gol","Estornudar","Bostezar","Aplaudir","Correr una maratón","Andar en bici","Conducir",
+      "Barrer","Cocinar","Peinarse","Maquillarse","Llorar de risa","Toser","Boxear","Levantar pesas",
+      "Escribir a máquina","Tocar el piano","Hacer malabares","Patinar","Esquiar","Saltar la cuerda",
+      "Abrir un regalo","Tomar sopa","Hablar por teléfono","Buscar las llaves","Hacer la maleta","Regar plantas"
+    ]},
+    { id: "musica", name: "Música", icon: "🎵", words: [
+      "Despacito","La Macarena","Bohemian Rhapsody","Waka Waka","Gasolina","La Bamba","Bailando","Vivir mi vida",
+      "Guitarra eléctrica","Batería","Trompeta","Acordeón","Reguetón","Flamenco","Cumbia","Tango","Bachata",
+      "Ópera","Karaoke","Coro","Rap","Rock","Jazz","Salsa","Merengue","Mariachi","Beatbox","Violín","Maracas",
+      "Piano de cola","DJ","Concierto","Festival","Auriculares","Vinilo","Micrófono","Himno","Villancico","Ranchera","Corrido"
+    ]},
+    { id: "deportes", name: "Deportes", icon: "⚽", words: [
+      "Fútbol","Baloncesto","Tenis","Natación","Boxeo","Ciclismo","Golf","Surf","Esquí","Patinaje",
+      "Voleibol","Béisbol","Rugby","Atletismo","Gimnasia","Judo","Karate","Escalada","Ajedrez","Bolos",
+      "Ping-pong","Bádminton","Hockey","Salto de altura","Maratón","Triatlón","Paracaidismo","Buceo","Remo",
+      "Halterofilia","Esgrima","Arco y flecha","Skate","Parkour","Yoga","Pilates","Zumba","Fútbol americano","Dardos","Pádel"
+    ]},
+    { id: "objetos", name: "Cosas", icon: "🪑", words: [
+      "Paraguas","Escalera","Semáforo","Aspiradora","Lavadora","Microondas","Almohada","Espejo","Tijeras","Martillo",
+      "Linterna","Reloj de arena","Globo terráqueo","Bicicleta","Ascensor","Cepillo de dientes","Maleta","Cargador",
+      "Mando a distancia","Sombrilla","Hamaca","Ventilador","Cafetera","Sartén","Plancha","Tostadora","Termómetro",
+      "Brújula","Telescopio","Cámara","Piano","Extintor","Buzón","Cortacésped","Manguera","Candado","Grapadora",
+      "Calculadora","Cinturón","Gafas de sol"
+    ]}
+  ];
+
+  /* ---------- Estado ---------- */
+
+  const S = {
+    deck: null,
+    duration: 60,
+    teams: false,
+    teamScores: [0, 0],
+    turn: 0,
+    queue: [],
+    idx: 0,
+    results: [],
+    endsAt: 0,
+    running: false,
+    armed: true,
+    locked: false,
+    rafId: 0,
+    tickAt: 0,
+    skipRotate: false,
+    wakeLock: null
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const bestKey = (id) => "adivina.best." + id;
+
+  const el = {
+    home: $("home"), ready: $("ready"), play: $("play"), results: $("results"),
+    decks: $("decks"), durations: $("durations"), teamToggle: $("teamToggle"),
+    startBtn: $("startBtn"), readyDeck: $("readyDeck"), readyHint: $("readyHint"),
+    count: $("count"), bar: $("bar"), barFill: $("bar").firstElementChild,
+    clock: $("clock"), tally: $("tally"), word: $("word"), verdict: $("verdict"),
+    zonePass: $("zonePass"), zoneHit: $("zoneHit"),
+    finalScore: $("finalScore"), scoreLabel: $("scoreLabel"), recordLine: $("recordLine"),
+    teamboard: $("teamboard"), reviewList: $("reviewList"),
+    againBtn: $("againBtn"), homeBtn: $("homeBtn"),
+    rotate: $("rotate"), skipRotate: $("skipRotate")
+  };
+
+  /* ---------- Sonido ---------- */
+
+  let ac = null;
+  function audio() {
+    if (!ac) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) ac = new Ctx();
+    }
+    if (ac && ac.state === "suspended") ac.resume();
+    return ac;
+  }
+  function tone(freq, dur, type, vol) {
+    const c = audio();
+    if (!c) return;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = type || "square";
+    o.frequency.setValueAtTime(freq, c.currentTime);
+    g.gain.setValueAtTime(0.0001, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(vol || 0.16, c.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+    o.connect(g).connect(c.destination);
+    o.start();
+    o.stop(c.currentTime + dur + 0.02);
+  }
+  const sfx = {
+    hit()  { tone(660, 0.1, "square", 0.16); setTimeout(() => tone(990, 0.16, "square", 0.16), 90); },
+    pass() { tone(200, 0.18, "sawtooth", 0.12); },
+    tick() { tone(880, 0.05, "sine", 0.09); },
+    go()   { tone(1320, 0.28, "square", 0.16); },
+    end()  { tone(330, 0.3, "sawtooth", 0.14); setTimeout(() => tone(220, 0.5, "sawtooth", 0.14), 260); }
+  };
+  const buzz = (ms) => { if (navigator.vibrate) navigator.vibrate(ms); };
+
+  /* ---------- Pantallas ---------- */
+
+  function show(name) {
+    [el.home, el.ready, el.play, el.results].forEach((s) => s.removeAttribute("data-on"));
+    el[name].setAttribute("data-on", "");
+    checkRotate();
+  }
+
+  const portrait = () => window.matchMedia("(orientation: portrait)").matches;
+
+  function checkRotate() {
+    const playing = el.ready.hasAttribute("data-on") || el.play.hasAttribute("data-on");
+    if (playing && portrait() && !S.skipRotate) el.rotate.setAttribute("data-on", "");
+    else el.rotate.removeAttribute("data-on");
+  }
+  window.addEventListener("resize", checkRotate);
+  window.addEventListener("orientationchange", () => setTimeout(checkRotate, 120));
+  el.skipRotate.addEventListener("click", () => { S.skipRotate = true; checkRotate(); });
+
+  /* ---------- Inicio ---------- */
+
+  function paintDecks() {
+    el.decks.innerHTML = "";
+    DECKS.forEach((d) => {
+      const b = document.createElement("button");
+      b.className = "deck";
+      b.type = "button";
+      const best = localStorage.getItem(bestKey(d.id));
+      b.innerHTML =
+        '<span class="ico">' + d.icon + '</span>' +
+        '<span class="nm"></span>' +
+        '<span class="best"></span>';
+      b.querySelector(".nm").textContent = d.name;
+      b.querySelector(".best").textContent = best ? "Récord " + best : "";
+      if (S.deck && S.deck.id === d.id) b.setAttribute("data-picked", "");
+      b.addEventListener("click", () => {
+        S.deck = d;
+        audio();
+        paintDecks();
+        el.startBtn.disabled = false;
+        el.startBtn.textContent = "Jugar · " + d.name;
+      });
+      el.decks.appendChild(b);
+    });
+  }
+
+  el.durations.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    [...el.durations.children].forEach((c) => c.removeAttribute("data-on"));
+    b.setAttribute("data-on", "");
+    S.duration = Number(b.dataset.sec);
+  });
+
+  el.teamToggle.addEventListener("click", () => {
+    S.teams = !S.teams;
+    el.teamToggle.toggleAttribute("data-on", S.teams);
+    el.teamToggle.setAttribute("aria-checked", String(S.teams));
+    S.teamScores = [0, 0];
+    S.turn = 0;
+  });
+
+  el.startBtn.addEventListener("click", () => { audio(); requestTilt(); beginRound(); });
+
+  /* ---------- Inclinación ---------- */
+
+  let tiltOn = false;
+
+  function requestTilt() {
+    if (tiltOn) return;
+    const DOE = window.DeviceOrientationEvent;
+    if (!DOE) return;
+    if (typeof DOE.requestPermission === "function") {
+      DOE.requestPermission()
+        .then((r) => { if (r === "granted") attachTilt(); })
+        .catch(() => {});
+    } else {
+      attachTilt();
+    }
+  }
+
+  function attachTilt() {
+    if (tiltOn) return;
+    tiltOn = true;
+    window.addEventListener("deviceorientation", onTilt);
+  }
+
+  function onTilt(e) {
+    if (!S.running || e.beta === null || e.gamma === null) return;
+    const rad = Math.PI / 180;
+    // Componente vertical de la normal de la pantalla: +1 mirando al cielo, -1 al suelo.
+    const pitch = Math.cos(e.beta * rad) * Math.cos(e.gamma * rad);
+    if (S.armed) {
+      if (pitch < -0.6) { S.armed = false; resolve(true); }
+      else if (pitch > 0.6) { S.armed = false; resolve(false); }
+    } else if (Math.abs(pitch) < 0.35) {
+      S.armed = true;
+    }
+  }
+
+  /* ---------- Ronda ---------- */
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  async function keepAwake() {
+    try {
+      if ("wakeLock" in navigator) S.wakeLock = await navigator.wakeLock.request("screen");
+    } catch (_) { /* sin bloqueo de pantalla, seguimos igual */ }
+  }
+  function releaseAwake() {
+    if (S.wakeLock) { S.wakeLock.release().catch(() => {}); S.wakeLock = null; }
+  }
+
+  function beginRound() {
+    S.queue = shuffle(S.deck.words);
+    S.idx = 0;
+    S.results = [];
+    S.armed = true;
+    S.running = false;
+    keepAwake();
+
+    el.readyDeck.textContent = S.teams ? "Equipo " + (S.turn === 0 ? "A" : "B") + " · " + S.deck.name : S.deck.name;
+    el.readyHint.textContent = "Móvil en la frente, pantalla hacia fuera";
+    show("ready");
+
+    let n = 3;
+    el.count.textContent = n;
+    el.count.setAttribute("data-pulse", "");
+    sfx.tick();
+
+    const iv = setInterval(() => {
+      n--;
+      el.count.removeAttribute("data-pulse");
+      void el.count.offsetWidth;
+      el.count.setAttribute("data-pulse", "");
+      if (n > 0) { el.count.textContent = n; sfx.tick(); }
+      else {
+        clearInterval(iv);
+        el.count.textContent = "¡YA!";
+        sfx.go();
+        buzz(60);
+        setTimeout(startPlay, 550);
+      }
+    }, 900);
+  }
+
+  function startPlay() {
+    S.running = true;
+    S.armed = true;
+    S.locked = false;
+    S.endsAt = performance.now() + S.duration * 1000;
+    S.tickAt = S.duration;
+    el.play.removeAttribute("data-flash");
+    el.tally.textContent = "0";
+    show("play");
+    nextWord();
+    S.rafId = requestAnimationFrame(loop);
+  }
+
+  function loop(now) {
+    if (!S.running) return;
+    const left = Math.max(0, (S.endsAt - now) / 1000);
+    const secs = Math.ceil(left);
+    if (secs !== S.tickAt) {
+      S.tickAt = secs;
+      el.clock.textContent = secs;
+      if (secs <= 5 && secs > 0) { sfx.tick(); buzz(25); }
+    }
+    el.barFill.style.transform = "scaleX(" + (left / S.duration) + ")";
+    el.bar.toggleAttribute("data-low", left / S.duration < 0.2);
+    if (left <= 0) return endRound();
+    S.rafId = requestAnimationFrame(loop);
+  }
+
+  function nextWord() {
+    if (S.idx >= S.queue.length) S.queue = shuffle(S.deck.words), S.idx = 0;
+    el.word.textContent = S.queue[S.idx];
+  }
+
+  function resolve(hit) {
+    if (!S.running || S.locked) return;
+    S.locked = true;
+    S.results.push({ word: S.queue[S.idx], hit: hit });
+    S.idx++;
+    if (hit) { sfx.hit(); buzz([30, 40, 30]); } else { sfx.pass(); buzz(70); }
+    el.tally.textContent = S.results.filter((r) => r.hit).length;
+    el.verdict.textContent = hit ? "¡BIEN!" : "PASO";
+    el.play.setAttribute("data-flash", hit ? "hit" : "pass");
+    setTimeout(() => {
+      S.locked = false;
+      if (!S.running) return;
+      el.play.removeAttribute("data-flash");
+      nextWord();
+    }, 620);
+  }
+
+  el.zoneHit.addEventListener("click", () => resolve(true));
+  el.zonePass.addEventListener("click", () => resolve(false));
+
+  function endRound() {
+    S.running = false;
+    cancelAnimationFrame(S.rafId);
+    el.play.removeAttribute("data-flash");
+    releaseAwake();
+    sfx.end();
+    buzz([120, 60, 120]);
+    showResults();
+  }
+
+  /* ---------- Resultados ---------- */
+
+  function score() { return S.results.filter((r) => r.hit).length; }
+
+  function showResults() {
+    const s = score();
+    el.finalScore.textContent = s;
+    el.scoreLabel.textContent = s === 1 ? "acierto" : "aciertos";
+
+    const key = bestKey(S.deck.id);
+    const prev = Number(localStorage.getItem(key) || 0);
+    if (s > prev) {
+      localStorage.setItem(key, String(s));
+      el.recordLine.textContent = "🏆 Nuevo récord en " + S.deck.name;
+      el.recordLine.hidden = false;
+      if (s > 0) confetti();
+    } else {
+      el.recordLine.textContent = "Récord en " + S.deck.name + ": " + prev;
+      el.recordLine.hidden = prev === 0;
+    }
+
+    if (S.teams) {
+      S.teamScores[S.turn] += s;
+      S.turn = S.turn === 0 ? 1 : 0;
+      el.teamboard.hidden = false;
+      el.teamboard.innerHTML = "";
+      ["A", "B"].forEach((nm, i) => {
+        const d = document.createElement("div");
+        if (i === S.turn) d.setAttribute("data-turn", "");
+        d.innerHTML = '<span class="label"></span><b></b>';
+        d.querySelector(".label").textContent = i === S.turn ? "Equipo " + nm + " · juega" : "Equipo " + nm;
+        d.querySelector("b").textContent = S.teamScores[i];
+        el.teamboard.appendChild(d);
+      });
+      el.againBtn.textContent = "Turno del Equipo " + (S.turn === 0 ? "A" : "B");
+    } else {
+      el.teamboard.hidden = true;
+      el.againBtn.textContent = "Otra ronda";
+    }
+
+    paintReview();
+    show("results");
+  }
+
+  function paintReview() {
+    el.reviewList.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.style.display = "grid";
+    wrap.style.gap = ".4rem";
+    S.results.forEach((r, i) => {
+      const b = document.createElement("button");
+      b.className = "item";
+      b.type = "button";
+      if (r.hit) b.setAttribute("data-hit", "");
+      b.innerHTML = '<span class="mark"></span><span class="txt"></span>';
+      b.querySelector(".mark").textContent = r.hit ? "✓" : "✕";
+      b.querySelector(".txt").textContent = r.word;
+      b.addEventListener("click", () => {
+        const was = S.results[i].hit;
+        S.results[i].hit = !was;
+        if (S.teams) S.teamScores[S.turn === 0 ? 1 : 0] += was ? -1 : 1;
+        const s = score();
+        el.finalScore.textContent = s;
+        el.scoreLabel.textContent = s === 1 ? "acierto" : "aciertos";
+        b.toggleAttribute("data-hit", !was);
+        b.querySelector(".mark").textContent = !was ? "✓" : "✕";
+        if (S.teams) {
+          const other = S.turn === 0 ? 1 : 0;
+          el.teamboard.children[other].querySelector("b").textContent = S.teamScores[other];
+        }
+        const key = bestKey(S.deck.id);
+        if (s > Number(localStorage.getItem(key) || 0)) {
+          localStorage.setItem(key, String(s));
+          el.recordLine.textContent = "🏆 Nuevo récord en " + S.deck.name;
+          el.recordLine.hidden = false;
+        }
+      });
+      wrap.appendChild(b);
+    });
+    if (!S.results.length) {
+      const p = document.createElement("p");
+      p.style.color = "var(--muted)";
+      p.style.fontSize = ".9rem";
+      p.textContent = "Ninguna palabra esta ronda. ¡La próxima cae!";
+      wrap.appendChild(p);
+    }
+    el.reviewList.appendChild(wrap);
+  }
+
+  el.againBtn.addEventListener("click", () => { audio(); beginRound(); });
+  el.homeBtn.addEventListener("click", () => {
+    S.teamScores = [0, 0];
+    S.turn = 0;
+    paintDecks();
+    show("home");
+  });
+
+  /* ---------- Confeti ---------- */
+
+  function confetti() {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const cv = document.createElement("canvas");
+    cv.className = "confetti";
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = innerWidth * dpr;
+    cv.height = innerHeight * dpr;
+    cv.style.width = innerWidth + "px";
+    cv.style.height = innerHeight + "px";
+    document.body.appendChild(cv);
+    const g = cv.getContext("2d");
+    g.scale(dpr, dpr);
+
+    const colors = ["#FF3D6E", "#B8FF3C", "#FFB021", "#FFF4E8", "#8A6BA8"];
+    const bits = Array.from({ length: 110 }, () => ({
+      x: innerWidth / 2 + (Math.random() - 0.5) * 120,
+      y: innerHeight * 0.32,
+      vx: (Math.random() - 0.5) * 9,
+      vy: -8 - Math.random() * 8,
+      w: 5 + Math.random() * 7,
+      h: 3 + Math.random() * 5,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.35,
+      c: colors[(Math.random() * colors.length) | 0]
+    }));
+
+    let frames = 0;
+    (function draw() {
+      g.clearRect(0, 0, innerWidth, innerHeight);
+      bits.forEach((b) => {
+        b.vy += 0.32;
+        b.x += b.vx;
+        b.y += b.vy;
+        b.rot += b.vr;
+        g.save();
+        g.translate(b.x, b.y);
+        g.rotate(b.rot);
+        g.fillStyle = b.c;
+        g.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+        g.restore();
+      });
+      frames++;
+      if (frames < 190) requestAnimationFrame(draw);
+      else cv.remove();
+    })();
+  }
+
+  /* ---------- Arranque ---------- */
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && S.running) endRound();
+  });
+
+  paintDecks();
+})();
+</script>
